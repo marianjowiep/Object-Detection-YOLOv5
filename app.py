@@ -1,105 +1,154 @@
 from flask import Flask, render_template, Response
 import torch
-from PIL import Image
 from torchvision.transforms import functional as F
 from utils.general import non_max_suppression
 from models.experimental import attempt_load
+from PIL import Image
+import detect
 import cv2
 
+import argparse
+import os
+import platform
+import sys
+import torch
+from pathlib import Path
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0]  # YOLOv5 root directory
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))  # add ROOT to PATH
+ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+
+from models.common import DetectMultiBackend
+from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
+from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
+                           increment_path, non_max_suppression, print_args, scale_boxes, strip_optimizer, xyxy2xywh)
+from utils.plots import Annotator, colors, save_one_box
+from utils.torch_utils import select_device, smart_inference_mode
+
+
 app = Flask(__name__)
-# Load YOLOv5 model
-weights_path = "model_yolov5m.pt"
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = attempt_load(weights_path)
-model = model.to(device).eval()
 
-def preprocess_image(image):
-    # Preprocess the image for YOLOv5
-    image = F.resize(image, (640, 640))
-    image = F.pad(image, (0, 0, 0, 0), fill=0)
-    image = F.to_tensor(image)
-    image = image.unsqueeze(0)
-    return image
+# Your code for importing necessary modules and functions
 
-def run_yolov5_inference(image):
-    # Run YOLOv5 inference on the image
-    image = image.to(device)
-    output = model(image)[0]
-    output = non_max_suppression(output, conf_thres=0.6, iou_thres=0.5)
-    return output
 
 def generate_frames():
-    # Open the camera
-    cap = cv2.VideoCapture(0)
+    weights = 'path/to/model_yolov5m.pt'
+    source = '0'
+    data = 'path/to/data.yaml'
+    imgsz = (640, 480)
+    conf_thres = 0.65
+    iou_thres = 0.45
+    max_det = 1000
+    device = ''
+    view_img = False
+    save_txt = False
+    save_conf = False
+    save_crop = False
+    nosave = True
+    classes = None
+    agnostic_nms = False
+    augment = False
+    visualize = False
+    update = False
+    project = 'runs/detect'
+    name = 'exp'
+    exist_ok = False
+    line_thickness = 3
+    hide_labels = False
+    hide_conf = False
+    half = False
+    dnn = False
+    vid_stride = 1
 
-    while True:
-        # Read a frame from the camera
-        ret, frame = cap.read()
+    source = str(source)
+    is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
+    is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
+    webcam = source.isnumeric() or source.endswith('.streams') or (is_url and not is_file)
 
-        if not ret:
-            break
+    if is_url and is_file:
+        source = check_file(source)  # download
+        # Directories
+    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
-        # Preprocess the frame
-        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        image = preprocess_image(image)
+    device = select_device(device)
+    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
+    stride, names, pt = model.stride, model.names, model.pt
+    imgsz = check_img_size(imgsz, s=stride)
 
-        # Run YOLOv5 inference on the frame
-        output = run_yolov5_inference(image)
+    dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
+    vid_path, vid_writer = [None] * len(dataset), [None] * len(dataset)
 
-        # Visualize the detections on the frame
-        for detection in output[0]:
-            x1, y1, x2, y2, conf, cls = detection
-            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)  # Convert coordinates to integers
+    model.warmup(imgsz=(1 if pt or model.triton else len(dataset), 3, *imgsz))
+    
+    for path, im, im0s, vid_cap, s in dataset:
+        im = torch.from_numpy(im).to(model.device)
+        im = im.half() if model.fp16 else im.float()
+        im /= 255
 
-            # Calculate the center coordinates of the bounding box
-            center_x = (x1 + x2) // 2
-            center_y = (y1 + y2) // 2
+        if len(im.shape) == 3:
+            im = im[None]
 
-            # Calculate the width and height of the bounding box
-            width = x2 - x1
-            height = y2 - y1
+        pred = model(im, augment=augment, visualize=visualize)
+        pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
 
-            # Calculate the adjusted bounding box coordinates
-            new_width = int(width * 1.2)  # Adjusted width
-            new_height = int(height * 1.2)  # Adjusted height
+        for i, det in enumerate(pred):
+            p, im0, frame = path[i], im0s[i].copy(), dataset.count
 
-            x1 = max(center_x - new_width // 2, 0)
-            y1 = max(center_y - new_height // 2, 0)
-            x2 = min(center_x + new_width // 2, frame.shape[1])
-            y2 = min(center_y + new_height // 2, frame.shape[0])
+            p = Path(p)
+            save_path = str(save_dir / p.name)
+            txt_path = str(save_dir / 'labels' / p.stem) + ('' if dataset.mode == 'image' else f'_{frame}')
+            s += '%gx%g ' % im.shape[2:]
+            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]
+            imc = im0.copy() if save_crop else im0
+            annotator = Annotator(im0, line_width=line_thickness, example=str(names))
 
-            # Calculate the object's coordinates within the adjusted bounding box
-            obj_x1 = max(center_x - width // 2, 0)
-            obj_y1 = max(center_y - height // 2, 0)
-            obj_x2 = min(center_x + width // 2, frame.shape[1])
-            obj_y2 = min(center_y + height // 2, frame.shape[0])
+            if len(det):
+                det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
 
-            # Draw the adjusted bounding box on the frame
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                for c in det[:, 5].unique():
+                    n = (det[:, 5] == c).sum()
+                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "
 
-            # Draw the object inside the adjusted bounding box
-           # cv2.rectangle(frame, (obj_x1, obj_y1), (obj_x2, obj_y2), (0, 0, 255), 2)
-            cv2.putText(frame, f'{cls}: {conf:.2f}', (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                for *xyxy, conf, cls in reversed(det):
+                    if save_txt:
+                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()
+                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)
+                        with open(f'{txt_path}.txt', 'a') as f:
+                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-        # Convert the frame to JPEG format
-        ret, buffer = cv2.imencode('.jpg', frame)
-        frame = buffer.tobytes()
+                    if save_crop:
+                        save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
-        # Yield the frame to Flask for streaming
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                    c = int(cls)
+                    label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                    annotator.box_label(xyxy, label, color=colors(c, True))
 
-    # Release the camera and cleanup
-    cap.release()
-    cv2.destroyAllWindows()
+            im0 = annotator.result()
+            ret, buffer = cv2.imencode('.jpg', im0)
+            frame = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            cv2.putText (im0,'Detections: ' + str(len(det)), (10,50),cv2.FONT_HERSHEY_SIMPLEX,1,(0,0,255),1,cv2.LINE_AA)
+            # cv2.putText (im0, str(names) ,(10,150),cv2.FONT_HERSHEY_SIMPLEX,1,(98,189,184),2,cv2.LINE_AA)
+            cv2.waitKey(1)
+                
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+    del model
+
 
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+
 if __name__ == '__main__':
     app.run(debug=True)
+
