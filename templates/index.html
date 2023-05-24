@@ -43,93 +43,25 @@
     border: 10px #333 solid;
 }  
 
-.fixed-btn1{
-position: fixed;
-background-color: #C14E76;
-width: 250px;
-height: 45px;
-line-height: 45px;
-bottom: 20%;
-right: 22%;
-border-radius: 10px;
-text-align: center;
-box-shadow: 4px 4px 4px #7E1037;
-cursor: pointer;
-}
-.btn{
-    position: fixed;
-    background-color: #C14E76;
-    width: 250px;
-    height: 45px;
-    line-height: 45px;
-    bottom: 45%;
-    right: 22%;
-    border-radius: 10px;
-    outline: none;
+#Container{
+    position:fixed;
+    margin: 80px;
+    width: 300px;
+    height: 480px;
+    top: 17%;
+    right: 3%;
+    border: 10px #333 solid;
+    background-color:#ce87a5; 
+}  
+#Container > h3{
     text-align: center;
-    box-shadow: 4px 4px 4px #7E1037;
-    cursor: pointer;
-    }
-.popup{
-width: 350px;
-background: #fff;
-border-radius: 20px;
-position: absolute;
-top: 0;
-left:50%:
-transform: translate(-50%, -50% scale(0.1));
-text-align: center;
-padding: 0 30px 30px;
-color: #333;
-visibility: hidden;
-transition: transform 0.9s, top 0.9s;
-}
-.btn p{
-text-transform: uppercase;
-font-family: arial;
-font-weight: 1000;
-font-size: 25px;
-color: white;
-}
-
-.open-popup{
- visibility: visible;
- top: 40%;
- left:35%;
- transform: translate(-50%, -50% scale(1));
-
-}
-.popup h2{
- font-size: 30px;
- font-weight: 500;
- margin: 30px 0 10px;
-}
-.popup button{
-width: 100%;
-margin-top: 50px;
-padding: 10px 0;
-background: #C14E76;
-color: white;
-border:0;
-outline: none;
-font-size: 18px;
-border-radius: 10px;
-cursor: pointer;
-box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-}
+    font-size: 30px;
+    font-family: Arial;
+    font: weight 600px;
+    color: white;
+   }
 
 
-.fixed-btn1 p{
-text-transform: uppercase;
-font-family: arial;
-font-weight: 1000;
-font-size: 20px;
-color: white;
-}
-
-.fixed-btn1:active{
-    box-shadow: 0 0;
-} 
    
 </style>
 
@@ -139,28 +71,13 @@ color: white;
         </div>
         <div id="container">
             <img src="{{ url_for('video_feed') }}" width="640" height="480">
-           </div>   
+           </div>  
+           
+           <div id="Container">
+           <h3>LIST</h3>
+           
+           </div>  
       
-<button type="submit" class="btn" onclick="openPopup()"> <p>SCAN</p> </button>
-<div class="popup" id="popup">
-    <h2> SCAN COMPLETE</h2>
-    <button type="button" onclick="closePopup()"> OK </button>
-</div>
-<div class="fixed-btn1">
-<a onclick=href="/Generate"> <p> GENERATE LIST</p> </a>
-</div>
-<script>
-let popup = document.getElementById("popup");
- function openPopup(){
-    popup.classList.add("open-popup")
- }
- function closePopup(){
-    popup.classList.remove("open-popup")
- }
-</script>
-       <div class="fixed-btn1">
-       <a onclick=href="/Generate"> <p> GENERATE LIST</p> </a>
-       </div>
 
 </body>
 </html>
